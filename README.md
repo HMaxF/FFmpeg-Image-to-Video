@@ -1,1 +1,1 @@
-Collection of script that use FFmpeg to create video from image(s)
+Collection of scripts that use FFmpeg to create video from image(s)
