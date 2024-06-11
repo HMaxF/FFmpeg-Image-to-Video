@@ -67,7 +67,7 @@ fps=25
 
 #ffmpeg -loop 1 -t $DUR -i "${1}" -vf "crop=w=ih*1.0:h=ih:x='((iw-(ih*1.0))*t)/$DUR':y=0" -r $fps -pix_fmt yuv420p $output_file
 
-# for Instagram, max height 1080
+# for Instagram, max height 1080, like https://www.instagram.com/reel/C8CDbrbiigH/
 if [ $height -gt 1080 ]; then
     echo "Image height is > 1080, set limit"
     height=1080
