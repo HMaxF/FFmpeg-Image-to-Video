@@ -61,4 +61,4 @@ video_resolution="${max_width}x${max_height}"
 echo "Video resolution: $video_resolution"
 
 # === scale will maintain aspect ratio !! ===
-ffmpeg -f concat -safe 0  -i image_list.txt -vf "scale=$max_width:$max_height:force_original_aspect_ratio=decrease:eval=frame,pad=$max_width:$max_height:-1:-1:color=black" -c:v libx264 -s $video_resolution -pix_fmt yuv420p "$output_file"
+ffmpeg -f concat -safe 0 -i image_list.txt -vf "scale=$max_width:$max_height:force_original_aspect_ratio=decrease:eval=frame,pad=$max_width:$max_height:-1:-1:color=black" -c:v libx264 -s $video_resolution -pix_fmt yuv420p "$output_file"
