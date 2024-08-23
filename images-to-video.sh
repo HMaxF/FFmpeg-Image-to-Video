@@ -1,7 +1,6 @@
 #!/bin/bash
 # image-to-video.sh
-
-# use an image to create a video by zooming-in from full size to center 
+# slideshow images, each image displayed in $duration
 
 if [ $# -eq 0 ] 
     # no arguments supplied
@@ -13,7 +12,6 @@ fi
 
 # Get the first argument, WARNING only as 1 single filename
 # so "DSC*.JPG" will get "DSC03161.JPG" (just a single filename)
-#input_file=$1
 
 # this is to get all parameters !!
 input_file=( "$@" )
@@ -27,11 +25,13 @@ config_filename="image_list.txt"
 # delete file before create
 rm $config_filename
 
+duration=3.0
+
 total_images=0
 for image in "${input_file[@]}"; do
 
     echo "file '$image'" >> "$config_filename"
-    echo "duration 3.0" >> "$config_filename"
+    echo "duration $duration" >> "$config_filename"
     
     total_images=$((total_images+1))
 done
@@ -60,8 +60,5 @@ max_height=1080
 video_resolution="${max_width}x${max_height}"
 echo "Video resolution: $video_resolution"
 
-# === tested and working well ===========
-#ffmpeg -f concat -safe 0  -i image_list.txt -vf "scale=3840:2160:force_original_aspect_ratio=decrease:eval=frame,pad=3840:2160:-1:-1:color=black" -b:v 10M -c:v libx264 -s $video_resolution -pix_fmt yuv420p "$output_file"
-
+# === scale will maintain aspect ratio !! ===
 ffmpeg -f concat -safe 0  -i image_list.txt -vf "scale=$max_width:$max_height:force_original_aspect_ratio=decrease:eval=frame,pad=$max_width:$max_height:-1:-1:color=black" -c:v libx264 -s $video_resolution -pix_fmt yuv420p "$output_file"
-# ======================================
