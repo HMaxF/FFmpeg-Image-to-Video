@@ -3,8 +3,8 @@
 
 
 # Define variables
-max_width=1920
-max_height=1080
+max_width=1080 #1920
+max_height=1920 #1080
 image_duration=5
 transition_duration=1
 
@@ -13,8 +13,9 @@ resize_image() {
     local input_image="$1"
     local output_image="$2"
 
-    # WARNING: -y to automatically answer prompt with 'yes', in this case: OVERRIDE file
-    ffmpeg -hide_banner -loglevel error -y -i "$input_image" -vf "scale=$max_width:$max_height:force_original_aspect_ratio=decrease" "$output_image"
+    # WARNING: -y to automatically answer prompt with 'yes', in this case: OVERRIDE file    
+    # resize with keeping aspect ratio to exact required resolution, so must use padding !!!
+    ffmpeg -hide_banner -loglevel error -y -i "$input_image" -vf "scale=$max_width:$max_height:force_original_aspect_ratio=1,pad=$max_width:$max_height:(ow-iw)/2:(oh-ih)/2,setsar=1" "$output_image"  
 }
 
 # Get all image files in the current directory
@@ -52,8 +53,7 @@ for image_file in "${image_files[@]}"; do
         output_image="resized_${max_width}x${max_height}_${image_file%.jpg}.jpg"
         resize_image "$image_file" "$output_image"
         echo "Resized $image_file to $output_image"
-
-        #input_list="$input_list -loop 1 -t $image_duration -i $output_image"
+        
         input_list+="-loop 1 -t $image_duration -i $output_image "
         
         resized_total_file=$((resized_total_file + 1))
@@ -64,9 +64,6 @@ for image_file in "${image_files[@]}"; do
 
         # this is make video 1 count shorter
         #offset=$(( ((count + 1) * image_duration) - transition_duration ))        
-        # [0][1]xfade=transition=slideleft:duration=1:offset=4[f0];
-        # [f0][1]xfade=transition=slideleft:duration=1:offset=9[f1];
-        # [f1][2]xfade=transition=slideleft:duration=1:offset=14[f2]
 
         # this make video 1 second longer (is this normal? need more testing)
         offset=$(( (count + 1) * (image_duration - transition_duration) ))
@@ -106,6 +103,7 @@ video_resolution="${max_width}x${max_height}"
 output_file="output.mp4"
 transition_duration=1
 
+#exit 0 # exit successfully
 
 # 
 cli="ffmpeg $input_list -filter_complex \"$filter_complex\" -c:v libx264 -s \"$video_resolution\" -pix_fmt yuv420p -map \"${last_count}\" -s 1920x1080 \"$output_file\""
