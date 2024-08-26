@@ -5,7 +5,7 @@
 # Define variables
 max_width=1080 #1920
 max_height=1920 #1080
-image_duration=5
+image_duration=4
 transition_duration=1
 
 # Function to resize an image while maintaining aspect ratio
@@ -57,15 +57,17 @@ for image_file in "${image_files[@]}"; do
         input_list+="-loop 1 -t $image_duration -i $output_image "
         
         resized_total_file=$((resized_total_file + 1))
+        
+        # the video length result is = (total_image * (image_duration - transition_duration)) + transition_duration
+        # example:
+        # total_image = 7, image_duration = 9, transition_duration = 3
+        # length = (7 * (9 - 3)) + 3 = 45 seconds
 
-        # TODO: find how to make sure total video length is (count * image_duration)
+        # TODO: find how to make sure total video length is (total_image * image_duration)
+
         # seems like playing with 'offset' is the 'key'
         # if too low then video length is broken, but if too long will be strange
-
-        # this is make video 1 count shorter
-        #offset=$(( ((count + 1) * image_duration) - transition_duration ))        
-
-        # this make video 1 second longer (is this normal? need more testing)
+        
         offset=$(( (count + 1) * (image_duration - transition_duration) ))
 
         # RULE: total transition is (total_image_to_resize - 1),
@@ -100,8 +102,19 @@ total_duration=$(( count * image_duration ))
 echo "Total duration = ${total_duration}"
 
 video_resolution="${max_width}x${max_height}"
+
+# Replace the extension with .mp4
 output_file="output.mp4"
-transition_duration=1
+
+# Check if the output file exists and modify the name if it does
+found_file=1
+base_output_file="${output_file%.*}"
+
+while [[ -f "$output_file" ]]; do    
+    echo "'$output_file' is already exists, use new name '${base_output_file}-${found_file}.mp4'"
+    output_file="${base_output_file}-${found_file}.mp4"
+    ((found_file++))
+done
 
 #exit 0 # exit successfully
 
