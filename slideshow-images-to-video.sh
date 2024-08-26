@@ -50,7 +50,10 @@ for image_file in "${image_files[@]}"; do
         found=$((found + 1))
 
         # Replace ".jpg" with your desired output extension if needed
-        output_image="resized_${max_width}x${max_height}_${image_file%.jpg}.jpg"
+        
+        #output_image="resized_${max_width}x${max_height}_${image_file%.jpg}.jpg" # embed original filename (for debugging)
+        output_image="resized_${found}.jpg" # shorter name, to make sure not to exceed CLI limit
+
         resize_image "$image_file" "$output_image"
         echo "Resized $image_file to $output_image"
         
@@ -62,6 +65,8 @@ for image_file in "${image_files[@]}"; do
         # example:
         # total_image = 7, image_duration = 9, transition_duration = 3
         # length = (7 * (9 - 3)) + 3 = 45 seconds
+
+        # the last image will be displayed longer than others!
 
         # TODO: find how to make sure total video length is (total_image * image_duration)
 
