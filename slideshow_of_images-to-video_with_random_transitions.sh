@@ -1,26 +1,29 @@
 #!/bin/bash
-# slideshow-of-images-to-video_with_parameters.sh
+# slideshow-of-images-to-video_with_random_transitions.sh
 
 # Check if exactly 3 arguments are provided
-if [ "$#" -ne 4 ]; then
+if [ "$#" -ne 3 ]; then
     echo "--------------"
     echo "Total parameters: $#"
     echo "Not enough parameters."
-    echo "Usage: $0 [filename wildcard] [transition effect] [per-image duration] [transition duration]"
+    echo "Usage: $0 [filename wildcard] [per-image duration in seconds] [transition duration in seconds]"
     echo "example:"
-    echo "$0 \"MyPhoto*.jpg\" circleopen 3 1"
+    echo "$0 \"MyPhoto*.jpg\" 3 1"
     exit 1
 fi
 
 # Assign the arguments to variables
 image_file_wild_card=$1
-transition_effect=$2 #eg: 'fade' or 'circleopen'
-per_image_duration=$3
-transition_duration=$4 # fading need slower time
+#transition_effect=$2 #eg: 'fade' or 'circleopen'
+per_image_duration=$2
+transition_duration=$3 # fading need slower time
+
+# Array of transition effects supported by ffmpeg's xfade filter (https://trac.ffmpeg.org/wiki/Xfade)
+transitions=("fade" "smoothleft" "smoothright" "vuwind" "vdwind" "slideleft" "slideright" "circleopen" "radial" "zoomin")
 
 # Print the input parameters (optional, for debugging purposes)
 echo "Filename wildcard: $image_file_wild_card"
-echo "Transition effect: $transition_effect"
+#echo "Transition effect: $transition_effect"
 echo "Per-image duration: $per_image_duration"
 echo "Transition duration: $transition_duration"
 
@@ -29,7 +32,7 @@ echo "============"
 
 # Define resolution variables (MAKE SURE there is NO BLACK BAR on any side)
 max_width=1080 #1920
-max_height=1350 # 1920 #1080 # ratio 1:1.25 is good for Instagram and Facebook
+max_height=1350 # 1920 #1080
 
 # Function to resize an image while maintaining aspect ratio
 resize_image() {
@@ -74,12 +77,35 @@ for filename in $(ls $image_file_wild_card 2>/dev/null); do
     input_list+="-loop 1 -t $per_image_duration -i $output_image "
 
     resized_total_file=$((resized_total_file + 1))
-
+    
     # offset == the time to start the transition for 'transition duration'    
     # NOTES:
     # 1. Total transition is (total_image_to_resize - 1), eg: if total image = 10 then transition is 9
     # 2. The last image will be displayed longer than others (== per_image_duration, because no transition to cut) !
     
+    # example scenario: display duration per image = 3 seconds, transition duration = 2 seconds
+    # === this is FAILED (created video only 1 image and finished) ============
+    # image1 -> 3 seconds (per_image_duration) 
+    # transition1 -> offset = (total image: 1 * 3) + (total previsous transition: 0 * 2) 3 seconds
+    # image2 -> 3 seconds
+    # transition2 -> offset = (total image: 2 * 3) + (total previsous transition: 1 * 2) 8 seconds
+    # image3 -> 3 seconds
+    # transition3 -> offset = (total image: 3 * 3) + (total previsous transition: 2 * 2) 13 seconds
+    # image4 -> 3 seconds
+    # total video duration length = (total image * per_image_duration) + ((total image - 1) * transition_duration) = 18 seconds
+    # Calculate the offset for each transition
+    offset=$(( (found * per_image_duration) + ((found - 1) * transition_duration) ))
+    # =========== logic 2 => also failed but reached 2nd image  =======================
+    # image1 -> 1 second (per_image_duration - transition_duration) 
+    # transition1 -> offset = (total image: 1 * 1) + (total previsous transition: 0 * 2) 1 seconds
+    # image2 -> 1 second
+    # transition2 -> offset = (total image: 2 * 1) + (total previsous transition: 1 * 2) 4 seconds
+    # image3 -> 1 second
+    # transition3 -> offset = (total image: 3 * 1) + (total previsous transition: 2 * 2) 7 seconds
+    # image4 -> 1 second
+    # total video duration length = (total image * (per_image_duration - transition_duration)) + ((total image - 1) * transition_duration) = 10 seconds
+    # Calculate the offset for each transition
+    offset=$(( (found * (per_image_duration - transition_duration)) + ((found - 1) * transition_duration) ))
     # =========== (tested working good in VLC plater) logic 3 => https://stackoverflow.com/questions/63553906/merging-multiple-video-files-with-ffmpeg-and-xfade-filter  =======================
     # image1 -> 3 seconds (per_image_duration) 
     # transition1 -> offset = (per_image_duration: 3) + (previous offset: 0) - (transition_duration: 2) = 1
@@ -97,16 +123,16 @@ for filename in $(ls $image_file_wild_card 2>/dev/null); do
 
     # TODO: find how 
     # 2024-10-31: NO WAY to make sure total video length is (total_image * image_duration), if must-have then need to add padding at the end !!!
-        
+
+    random_transition="${transitions[$RANDOM % ${#transitions[@]}]}"  # Randomly select a transition
+    
     if [ $found -eq 1 ]; then
         # first image        
-        filter_complex+="[0][1]xfade=transition=$transition_effect:duration=$transition_duration:offset=$offset[f$found]; "
+        filter_complex+="[0][1]xfade=transition=$random_transition:duration=$transition_duration:offset=$offset[f$found]; "
     elif [ $found -lt $((total_image_to_resize)) ]; then
-        filter_complex+="[f$((found-1))][$((found))]xfade=transition=$transition_effect:duration=$transition_duration:offset=$offset[f$found]; "
+        filter_complex+="[f$((found-1))][$((found))]xfade=transition=$random_transition:duration=$transition_duration:offset=$offset[f$found]; "
     fi
 done
-
-#exit -1
 
 # Remove the trailing semicolon and space from the filter_complex
 filter_complex="${filter_complex%; }"
