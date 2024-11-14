@@ -74,47 +74,36 @@ for filename in $(ls $image_file_wild_card 2>/dev/null); do
     resize_image "$filename" "$output_image"
     echo "Resized $filename to $output_image"
     
-    input_list+="-loop 1 -t $per_image_duration -i $output_image "
+    
 
     resized_total_file=$((resized_total_file + 1))
     
     # offset == the time to start the transition for 'transition duration'    
     # NOTES:
     # 1. Total transition is (total_image_to_resize - 1), eg: if total image = 10 then transition is 9
-    # 2. The last image will be displayed longer than others (== per_image_duration, because no transition to cut) !
+    # 2. Display duration per image SHOULD BE longer than transition time
+    # 3. SOMEHOW FFMPEG failed if (per_image_duration - transtion_duration) < 2, so make sure (per_image_duration - transtion_duration) >= 2
     
-    # example scenario: display duration per image = 3 seconds, transition duration = 2 seconds
-    # === this is FAILED (created video only 1 image and finished) ============
-    # image1 -> 3 seconds (per_image_duration) 
-    # transition1 -> offset = (total image: 1 * 3) + (total previsous transition: 0 * 2) 3 seconds
-    # image2 -> 3 seconds
-    # transition2 -> offset = (total image: 2 * 3) + (total previsous transition: 1 * 2) 8 seconds
-    # image3 -> 3 seconds
-    # transition3 -> offset = (total image: 3 * 3) + (total previsous transition: 2 * 2) 13 seconds
-    # image4 -> 3 seconds
-    # total video duration length = (total image * per_image_duration) + ((total image - 1) * transition_duration) = 18 seconds
-    # Calculate the offset for each transition
-    offset=$(( (found * per_image_duration) + ((found - 1) * transition_duration) ))
-    # =========== logic 2 => also failed but reached 2nd image  =======================
-    # image1 -> 1 second (per_image_duration - transition_duration) 
-    # transition1 -> offset = (total image: 1 * 1) + (total previsous transition: 0 * 2) 1 seconds
-    # image2 -> 1 second
-    # transition2 -> offset = (total image: 2 * 1) + (total previsous transition: 1 * 2) 4 seconds
-    # image3 -> 1 second
-    # transition3 -> offset = (total image: 3 * 1) + (total previsous transition: 2 * 2) 7 seconds
-    # image4 -> 1 second
-    # total video duration length = (total image * (per_image_duration - transition_duration)) + ((total image - 1) * transition_duration) = 10 seconds
-    # Calculate the offset for each transition
-    offset=$(( (found * (per_image_duration - transition_duration)) + ((found - 1) * transition_duration) ))
+
+    # example scenario: display duration per image = 4 seconds, transition duration = 1 second
     # =========== (tested working good in VLC plater) logic 3 => https://stackoverflow.com/questions/63553906/merging-multiple-video-files-with-ffmpeg-and-xfade-filter  =======================
-    # image1 -> 3 seconds (per_image_duration) 
-    # transition1 -> offset = (per_image_duration: 3) + (previous offset: 0) - (transition_duration: 2) = 1
+    # example: image1 (3s) === transtion (1s) = image2 (3s) === transtion (1s) = image3 (3s) === transtion (1s) = image4 (3s)
+
+    # image1 -> 3 seconds (per_image_duration - transtion_duration) 
+    # transition1 -> offset = (per_image_duration: 4) + (previous offset: 0) - (transition_duration: 1) = 3
     # image2 -> 3 seconds
-    # transition2 -> offset = (per_image_duration: 3) + (previous offset: 1) - (transition_duration: 2) = 2
+    # transition2 -> offset = (per_image_duration: 4) + (previous offset: 3) - (transition_duration: 1) = 6
     # image3 -> 3 seconds
-    # transition3 -> offset = (per_image_duration: 3) + (previous offset: 2) - (transition_duration: 2) = 3
+    # transition3 -> offset = (per_image_duration: 4) + (previous offset: 6) - (transition_duration: 1) = 9
     # image4 -> 3 seconds
-    # total video duration length = ((total image - 1) * (per_image_duration - transition_duration)) + (per_image_duration of last image [no transition]) = 6 seconds     
+    # total video duration length = ((total image - 1) * (per_image_duration - transition_duration)) + (per_image_duration of last image [no transition]) = 12 seconds
+    # == ((4 - 1) * (4 - 1)) + (3)
+    # == (3 * 3) + 3
+    # == 12
+
+    # from 1st image to n-1 image, the actual display image duration == $per_image_duration
+    # the last image, the actual display image duration == $per_image_duration - transition_duration
+
     offset=$(( ((per_image_duration + previous_offset) - transition_duration) ))
     #echo "image $found offset: $offset"
 
@@ -128,9 +117,17 @@ for filename in $(ls $image_file_wild_card 2>/dev/null); do
     
     if [ $found -eq 1 ]; then
         # first image        
+        input_list+="-loop 1 -t $per_image_duration -i $output_image "
+
         filter_complex+="[0][1]xfade=transition=$random_transition:duration=$transition_duration:offset=$offset[f$found]; "
     elif [ $found -lt $((total_image_to_resize)) ]; then
+        input_list+="-loop 1 -t $per_image_duration -i $output_image "
+        
         filter_complex+="[f$((found-1))][$((found))]xfade=transition=$random_transition:duration=$transition_duration:offset=$offset[f$found]; "
+    else
+        # last image, using shorter display duration BECAUSE no filter!!
+        last_image_display_duration=$(( per_image_duration - transition_duration ))
+        input_list+="-loop 1 -t $last_image_display_duration -i $output_image "
     fi
 done
 
