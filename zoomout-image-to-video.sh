@@ -15,113 +15,92 @@ fi
 input_file="$1"
 
 # Replace the extension with .mp4
-output_file="[zoomout]-${input_file%.*}.mp4"
+video_output_filename="[zoomout]-${input_file%.*}.mp4"
 
 # Check if the output file exists and modify the name if it does
 counter=1
-base_output_file="${output_file%.*}"
+base_output_file="${video_output_filename%.*}"
 
-while [[ -f "$output_file" ]]; do    
-    echo "'$output_file' is already exists, use new name '${base_output_file}-${counter}.mp4'"
-    output_file="${base_output_file}-${counter}.mp4"
+while [[ -f "$video_output_filename" ]]; do    
+    echo "'$video_output_filename' is already exists, use new name '${base_output_file}-${counter}.mp4'"
+    video_output_filename="${base_output_file}-${counter}.mp4"
     ((counter++))
 done
 
 # at this point, everything ready to run
 
-# Use ffprobe to get the width and height of the image
-resolution=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "$input_file")
+# Define output video resolution 
+max_width=1080 #1920
+max_height=1350 # 1920 #1080
 
-# Split the resolution into width and height
-width=$(echo "$resolution" | cut -d, -f1)
-height=$(echo "$resolution" | cut -d, -f2)
-
-echo "Image resolution: $width x $height"
-
-# For Instagram Reel, rules to set the maximum dimensions based on orientation
-max_height_portrait=1920
-max_width_portrait=1080
-max_width_landscape=1080
-
-# Calculate the new dimensions while keeping the aspect ratio
-if [ "$width" -lt "$height" ]; then
-    # Portrait
-    new_height=$height
-    new_width=$width
-
-    if [ "$height" -gt "$max_height_portrait" ]; then
-        new_height=$max_height_portrait
-        new_width=$(echo "$width * $max_height_portrait / $height" | bc)
-    fi
-
-    if [ "$new_width" -gt "$max_width_portrait" ]; then
-        new_width=$max_width_portrait
-        new_height=$(echo "$height * $max_width_portrait / $width" | bc)
-    fi
-else
-    # Landscape
-    if [ "$width" -gt "$max_width_landscape" ]; then
-        new_width=$max_width_landscape
-        new_height=$(echo "$height * $max_width_landscape / $width" | bc)
-    else
-        new_width=$width
-        new_height=$height
-    fi
-fi
-
-# fix "[libx264 @ 0x561f21a12100] height not divisible by 2 (1080x1649)"
-# Ensure the new height is divisible by 2
-if [ $((new_height % 2)) -ne 0 ]; then
-    new_height=$((new_height + 1))
-fi
-
-
-video_resolution="${new_width}x${new_height}"
+video_resolution="${max_width}x${max_height}"
 echo "Video resolution: $video_resolution"
 
 # duration
-DUR=30
+DUR=5
 
 # fps 
 fps=25
 
-
-# ZOOM TO THE CENTER to the image 
-# zoom == z ==> Set the zoom expression. Range is 1.0-10. Default is 1.0
-# scale=8000:-1 ==> scale the image to 8000xwhatever height
-# -1 ==> keep image ratio (http://trac.ffmpeg.org/wiki/Scaling)
-# -2 ==> keep ratio
-# scale=iw:ih ==> keep the ratio the same as INPUT WIDTH and INPUT HEIGHT
-# zoompan=z='zoom+0.001' ==> smooth butter zoom in, if higher then the video is jittery
-# x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2) ==> center the image to the screen
-# x=0,y=0 ==> zoom in to top left
-# d ==> Set the duration expression in number of frames. This sets for how many number of frames effect will last for single input image. Default is 90. 
-# NOTE: if d is too small then the effect will be restarted, to avoid restart make it as large as possible.
-
-# on ==> Output frame count.
-
-# s ==> video resolution, default is 1280x720 (720p)
-# WARNING: changing resolution may skewed ratio, so keep the ratio the same 
-
+# === trials ============
 # zoom-in (tested working properly)
 #ffmpeg -loop 1 -i "$input_file" -vf "zoompan=z='min(zoom+0.003,3.0)':d=2000:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'" -c:v libx264 -t $DUR -s $video_resolution -pix_fmt yuv420p "$output_file"
 
 # zoom in and out (breathing) --> tested working
 #ffmpeg -loop 1 -i "$input_file" -vf "scale=iw*4:ih*4,zoompan=z='if(lte(mod(on,60),30),zoom+0.002,zoom-0.002)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d=25*5" -c:v libx264 -t $DUR -s $video_resolution -pix_fmt yuv420p "$output_file"
+# ==== end of trials =====
 
-
-#Zooming out
-
+# Zooming out
 # start with large zoom value and decrease it with each frame
 
-# zoom out from large zoom value to 1.0 (image full size)
+# end_zoom ==> the destination of zoom out --> 1.0 == original image full size
 end_zoom=1.0
 
-zoomout_speed=0.005
+# combination of zoomout_speed=0.001 with DUR=5 are good
+zoomout_speed=0.001
 
-# Perform floating-point arithmetic using bc
-start_zoom=$(echo "$end_zoom + $fps * $DUR * $zoomout_speed" | bc)
+# start_zoom ==> the starting zoom value (larger than 1.0) to slowly zooming out
+#start_zoom=$(echo "$end_zoom + $fps * $DUR * $zoomout_speed" | bc) # Perform floating-point arithmetic using bc
+start_zoom=1.2 # +20%
 
 echo "start zoom: $start_zoom"
 
-ffmpeg -loop 1 -i "$input_file" -vf "zoompan=z='if(lte(zoom,$end_zoom),$start_zoom,max($end_zoom,zoom-$zoomout_speed))':x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):d=$DUR*$fps" -c:v libx264 -t $DUR -s $video_resolution -pix_fmt yuv420p "$output_file"
+# Function to resize an image while maintaining aspect ratio
+resize_image() {
+    local input_image="$1"
+    local output_image="$2"
+
+    # create larger temp image to 
+    # (a) create good quality video (not broken because zoomed-in)
+    # (b) reduce shaky/jerky
+    # NOTE: $start_zoom is decimal value, so use 'bc'
+
+    #temp_max_width=$(echo "$max_width * $start_zoom" | bc | awk '{print int($1)}') # round-down using int()
+    #temp_max_width=$(echo "$max_width * $start_zoom" | bc)
+    temp_max_width=$(echo "$max_width * 1.2" | bc) # * 1.2 (+20%) is a good even value to maintain good ratio
+    #temp_max_width=$(echo "$temp_max_width / 1 + ( $temp_max_width > ( $temp_max_width / 1 ) )" | bc) # round-up
+
+    #temp_max_height=$(echo "$max_height * $start_zoom" | bc | awk '{print int($1)}') # round down using int()
+    #temp_max_height=$(echo "$max_height * $start_zoom" | bc)
+    temp_max_height=$(echo "$max_height * 1.2" | bc) # * 1.2 (+20%) is a good even value to maintain good ratio
+    #temp_max_height=$(echo "$temp_max_height / 1 + ( $temp_max_height > ( $temp_max_height / 1 ) )" | bc) # round-up
+    
+    echo "temp image resize: $temp_max_width * $temp_max_height"
+
+    # WARNING: -y to automatically answer prompt with 'yes', in this case: OVERRIDE file    
+    # resize with keeping aspect ratio to exact required resolution, so must use padding !!!
+    #ffmpeg -hide_banner -loglevel error -y -i "$input_image" -vf "scale=$max_width:$max_height:force_original_aspect_ratio=1,pad=$max_width:$max_height:(ow-iw)/2:(oh-ih)/2,setsar=1" "$output_image"
+
+    ffmpeg -hide_banner -loglevel error -y -i "$input_image" -vf "scale=$temp_max_width:$temp_max_height:force_original_aspect_ratio=1,pad=$temp_max_width:$temp_max_height:(ow-iw)/2:(oh-ih)/2,setsar=1" "$output_image"
+}
+
+resized_png_filename="resized_${input_file}.png" # shorter name, to make sure not to exceed CLI limit
+
+# call the function
+resize_image "$input_file" "$resized_png_filename"
+
+ffmpeg -loop 1 -i "$resized_png_filename" -vf "zoompan=z='if(lte(zoom,$end_zoom),$start_zoom,max($end_zoom,zoom-$zoomout_speed))':x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):d=$DUR*$fps:s=$video_resolution" -c:v libx264 -t $DUR -r $fps -s $video_resolution -pix_fmt yuv420p "$video_output_filename"
+
+# NOTES:
+# 1. Without specifying ':s=$video_resolution' then the created video will have broken resolution.
+# 2. Without specifying '-s $video_resolution' then the default value is 1280x720 or will be shaky and jerky.
