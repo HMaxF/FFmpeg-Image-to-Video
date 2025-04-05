@@ -111,6 +111,8 @@ for resized_image_filename in "${resized_filenames[@]}"; do
     # 'trim' to set exact limit time, and
     # 'setpts' to resets timestamps for correct concatenation
 
+    # add 'vignette' for security (authenticity) of hariyantoandfriends
+
     if [[ $counter -eq 0 ]]; then
         # first image, no need to fade-in
         filter_complex+="[$counter:v]zoompan=z='if(lte(zoom,$end_zoom),$start_zoom,max($end_zoom,zoom-$zoomout_speed))'\
@@ -119,6 +121,7 @@ for resized_image_filename in "${resized_filenames[@]}"; do
             :d=$((DUR*fps))\
             :s=$video_resolution\
             ,fps=$fps\
+            ,vignette
             ,fade=t=out:st=$(echo "$DUR-$fade_duration" | bc)\
             :d=$fade_duration\
             ,trim=duration=5\
@@ -131,6 +134,7 @@ for resized_image_filename in "${resized_filenames[@]}"; do
             :d=$((DUR*fps))\
             :s=$video_resolution\
             ,fps=$fps\
+            ,vignette
             ,fade=t=in:st=0:d=$fade_duration\
             :d=$fade_duration\
             ,trim=duration=5\
@@ -145,6 +149,7 @@ for resized_image_filename in "${resized_filenames[@]}"; do
             :d=$((DUR*fps))\
             :s=$video_resolution\
             ,fps=$fps\
+            ,vignette
             ,fade=t=in:st=0:d=$fade_duration\
             ,fade=t=out:st=$(echo "$DUR-$fade_duration" | bc)\
             :d=$fade_duration\
