@@ -44,9 +44,10 @@ echo "Total image to resize = ${total_image_to_resize}"
 
 resized_total_file=0
 found=0
+resized_filenames=() # init array
 
-#for filename in $(ls $image_file_wild_card 2>/dev/null); do
-for filename in $image_file_wild_card; do
+for filename in $(ls -v $image_file_wild_card); do
+
     found=$((found + 1))
 
     #echo "Matched filename: $filename"
@@ -60,11 +61,18 @@ for filename in $image_file_wild_card; do
     # execute the resize function
     resize_image "$filename" "$output_image"
     echo "Resized $filename to $output_image"
+
+    resized_filenames+=("$output_image") # append into array
     
     resized_total_file=$((resized_total_file + 1))
 done
 
 echo "Total resized file = ${resized_total_file}"
+
+if [[ $resized_total_file -lt 1 ]]; then
+  echo "no image to resize, exit"
+  exit 1
+fi
 
 # Check if the output file exists and modify the name if it does
 video_output_filename="output.mp4"
@@ -76,7 +84,6 @@ while [[ -f "$video_output_filename" ]]; do
     video_output_filename="${base_video_output_file}-${found_file}.mp4"
     ((found_file++))
 done
-
 
 fps=30
 DUR=5              # duration per image in seconds
@@ -96,8 +103,7 @@ filter_complex=""
 counter=0
 offset=0
 
-
-for resized_image_filename in resized_*.png; do
+for resized_image_filename in "${resized_filenames[@]}"; do
     inputs+="-loop 1 -t $DUR -i $resized_image_filename "
 
     # zoompan with fade-in and fade-out per image
@@ -216,7 +222,9 @@ cli="ffmpeg -hide_banner \
   \"$video_output_filename\"
   "
 
-echo "*** cli: $cli"
+echo "*** cli: ******************"
+echo $cli
+echo "***************************"
 
 eval $cli
 ret=$?
