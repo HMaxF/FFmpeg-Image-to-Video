@@ -23,10 +23,24 @@ per_image_duration=5 # default duration
 #   echo "Watermark text: $watermark_text"
 # fi
 
+# Settings
+start_zoom=1.2       # initial zoom (20% zoomed in)
+end_zoom=1.0         # final zoom level (original size)
+zoomout_speed=0.002 # constant speed, change from 0.001 to 0.002 for faster and smoother (less jittery)
+
+fps=60 #30 --> use 60 for smoother (less jittery) video
+DUR=5              # duration per image in seconds
+total_frames=$((DUR * fps)) # instead of constant speed ($zoomout_speed), use $fps and $DUR to calculate dynamic speed (but maybe value is too small ==> jittery)
+fade_duration=1    # duration of fade-in and fade-out transition for each video (in seconds)
+# $fade_duration will be inside $DUR !
+
+
 # for Instagram post, ratio of 5:4 (portrait) or 1:1.25 is good !!!
-max_width=1080 
-max_height=1350 
-video_resolution="${max_width}x${max_height}"
+video_width=1080
+video_height=1350
+image_width=$(echo "$video_width * $start_zoom" | bc) # make larger size than video to help improve quality
+image_height=$(echo "$video_height * $start_zoom" | bc)
+video_resolution="${video_width}x${video_height}"
 
 # Function to resize an image while maintaining aspect ratio
 resize_image() {
@@ -35,7 +49,7 @@ resize_image() {
 
     # WARNING: -y to automatically answer prompt with 'yes', in this case: OVERRIDE file    
     # resize with keeping aspect ratio to exact required resolution, so must use padding !!!
-    ffmpeg -hide_banner -loglevel error -y -i "$input_image" -vf "scale=$max_width:$max_height:force_original_aspect_ratio=1,pad=$max_width:$max_height:(ow-iw)/2:(oh-ih)/2,setsar=1" "$output_image"  
+    ffmpeg -hide_banner -loglevel error -y -i "$input_image" -vf "scale=$image_width:$image_height:force_original_aspect_ratio=1,pad=$image_width:$image_height:(ow-iw)/2:(oh-ih)/2,setsar=1" "$output_image"
 }
 
 # Get all image files in the current directory
@@ -85,16 +99,6 @@ while [[ -f "$video_output_filename" ]]; do
     ((found_file++))
 done
 
-fps=30
-DUR=5              # duration per image in seconds
-fade_duration=1    # duration of fade-in and fade-out transition for each video (in seconds)
-# $fade_duration will be inside $DUR !
-
-# Settings
-start_zoom=1.2      # initial zoom (20% zoomed in)
-end_zoom=1.0        # final zoom level (original size)
-zoomout_speed=0.001 # combination of zoomout_speed=0.001 with DUR=5 are good
-
 # Process each resized PNG image individually
 
 # Generate input arguments
@@ -112,48 +116,60 @@ for resized_image_filename in "${resized_filenames[@]}"; do
     # 'setpts' to resets timestamps for correct concatenation
 
     # add 'vignette' for security (authenticity) of hariyantoandfriends
+    # just using 'vignette' (without parameter is default 'PI/5', it is a little weak == small shadow)
+    # vignette=PI/4 ==> 45 degree ==> stronger shadow
 
     if [[ $counter -eq 0 ]]; then
         # first image, no need to fade-in
-        filter_complex+="[$counter:v]zoompan=z='if(lte(zoom,$end_zoom),$start_zoom,max($end_zoom,zoom-$zoomout_speed))'\
+        # zooming-in (enlarge) the first image
+
+        # use dynamic zoom speed (without $zoomout_speed)
+        # eq(on,1) ==> if frame count equal 1 (first frame)
+        #filter_complex+="[$counter:v]zoompan=z='if(eq(on,1),$start_zoom,$start_zoom+(($end_zoom-$start_zoom)*(on/$total_frames)))'\
+
+        
+
+        filter_complex+="[$counter:v]zoompan=z='max($end_zoom,$start_zoom-on*$zoomout_speed)'\
             :x=iw/2-(iw/zoom/2)\
             :y=ih/2-(ih/zoom/2)\
-            :d=$((DUR*fps))\
+            :d=1\
             :s=$video_resolution\
             ,fps=$fps\
-            ,vignette
+            ,vignette=PI/4\
             ,fade=t=out:st=$(echo "$DUR-$fade_duration" | bc)\
             :d=$fade_duration\
-            ,trim=duration=5\
+            ,trim=duration=$DUR\
             ,setpts=PTS-STARTPTS[v${counter}];"
     elif [[ $counter -eq $((resized_total_file - 1)) ]]; then
         # last image, no need to fade-out
-        filter_complex+="[$counter:v]zoompan=z='if(lte(zoom,$end_zoom),$start_zoom,max($end_zoom,zoom-$zoomout_speed))'\
+        # zooming-in (enlarge) the last image
+        filter_complex+="[$counter:v]zoompan=z='max($end_zoom,$start_zoom-on*$zoomout_speed)'\
             :x=iw/2-(iw/zoom/2)\
             :y=ih/2-(ih/zoom/2)\
-            :d=$((DUR*fps))\
+            :d=1\
             :s=$video_resolution\
             ,fps=$fps\
-            ,vignette
+            ,vignette=PI/4\
             ,fade=t=in:st=0:d=$fade_duration\
             :d=$fade_duration\
-            ,trim=duration=5\
+            ,trim=duration=$DUR\
             ,setpts=PTS-STARTPTS[v${counter}];"
     else
         # d=$((DUR*fps)) # duration in frames 
         # fade=t=in:st=0:d=1       # fade-in starts at 0 sec, lasts 1 sec
         # fade=t=out:st=4:d=1      # fade-out starts at 4 sec, lasts 1 sec
-        filter_complex+="[$counter:v]zoompan=z='if(lte(zoom,$end_zoom),$start_zoom,max($end_zoom,zoom-$zoomout_speed))'\
+        #filter_complex+="[$counter:v]zoompan=z='if(lte(zoom,$end_zoom),$start_zoom,max($end_zoom,zoom-$zoomout_speed))'\
+        filter_complex+="[$counter:v]zoompan=z='min($start_zoom,$end_zoom+on*$zoomout_speed)'\
             :x=iw/2-(iw/zoom/2)\
             :y=ih/2-(ih/zoom/2)\
-            :d=$((DUR*fps))\
+            :d=1\
             :s=$video_resolution\
             ,fps=$fps\
-            ,vignette
+            ,vignette=PI/4\
             ,fade=t=in:st=0:d=$fade_duration\
             ,fade=t=out:st=$(echo "$DUR-$fade_duration" | bc)\
             :d=$fade_duration\
-            ,trim=duration=5\
+            ,trim=duration=$DUR\
             ,setpts=PTS-STARTPTS[v${counter}];"
     fi
         
@@ -165,8 +181,11 @@ done
 
 # define watermark_image
 #watermark_image="hariyantoandfriends-300x45.png" # watermark image
-if [[ -n "$watermark_image" && ${#watermark_image} -gt 1 ]]; then
-    filter_complex+="[$counter:v]fps=$fps,format=rgba,setpts=PTS-STARTPTS[wm];" # to make adding watermark without jittery
+if [[ -n "$watermark_image" && ${#watermark_image} -gt 1 ]]; then    
+    #filter_complex+="[$counter:v]fps=$fps,format=rgba,setpts=PTS-STARTPTS[wm];" # to make adding watermark without jittery
+    filter_complex+="[$counter:v]fps=$fps,format=rgba,loop=1,trim=duration=$((DUR*resized_total_file)),tpad=stop_mode=clone,setpts=PTS-STARTPTS[wm];" # to make adding watermark without jittery
+
+    #2025-04-07: no solution to remove jittery
 fi
 
 # Concatenate using overlay for crossfade
@@ -185,7 +204,7 @@ if [[ -n "$watermark_image" && ${#watermark_image} -gt 1 ]]; then
 
   # Positioning watermark at bottom right with 10px padding
   #filter_complex+="[$final_tag][$counter:v]overlay=W-w-10:H-h-10[output_video];" # original jittery
-  filter_complex+="[$final_tag][wm]overlay=W-w-10:H-h-10[output_video];"
+  filter_complex+="[$final_tag][wm]overlay=W-w-20:H-h-20[output_video];"
 
   final_tag="output_video"
 fi
@@ -221,7 +240,7 @@ cli="ffmpeg -hide_banner \
   -c:v libx264 \
   -pix_fmt yuv420p \
   -preset ultrafast \
-  -r \"$fps\" \
+  -r $fps \
   -s \"$video_resolution\" \
   
   \"$video_output_filename\"
