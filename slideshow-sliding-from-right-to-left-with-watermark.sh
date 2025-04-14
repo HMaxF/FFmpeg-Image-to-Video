@@ -29,9 +29,10 @@ echo "Per-image duration: $per_image_duration"
 echo "============"
 #exit -1
 
-# Define resolution variables (MAKE SURE there is NO BLACK BAR on any side)
-max_width=1080 #1920
-max_height=1350 # 1920 #1080
+# for Instagram post, ratio of 5:4 (portrait) or 1:1.25 is good !!!
+video_width=1080
+video_height=1350
+video_resolution="${video_width}x${video_height}"
 
 # Function to resize an image while maintaining aspect ratio
 resize_image() {
@@ -40,7 +41,7 @@ resize_image() {
 
     # WARNING: -y to automatically answer prompt with 'yes', in this case: OVERRIDE file    
     # resize with keeping aspect ratio to exact required resolution, so must use padding !!!
-    ffmpeg -hide_banner -loglevel error -y -i "$input_image" -vf "scale=$max_width:$max_height:force_original_aspect_ratio=1,pad=$max_width:$max_height:(ow-iw)/2:(oh-ih)/2,setsar=1" "$output_image"  
+    ffmpeg -hide_banner -loglevel error -y -i "$input_image" -vf "scale=$video_width:$video_height:force_original_aspect_ratio=1,pad=$video_width:$video_height:(ow-iw)/2:(oh-ih)/2,setsar=1" "$output_image"
 }
 
 # Get all image files in the current directory
@@ -49,8 +50,10 @@ echo "Total image to resize = ${total_image_to_resize}"
 
 resized_total_file=0
 found=0
+resized_filenames=() # init array
 
-for filename in $(ls $image_file_wild_card 2>/dev/null); do
+#for filename in $(ls $image_file_wild_card 2>/dev/null); do
+for filename in $(ls -v $image_file_wild_card); do
     found=$((found + 1))
 
     #echo "Matched filename: $filename"
@@ -65,23 +68,40 @@ for filename in $(ls $image_file_wild_card 2>/dev/null); do
     resize_image "$filename" "$output_image"
     echo "Resized $filename to $output_image"
     
+    resized_filenames+=("$output_image") # append into array
+    
     resized_total_file=$((resized_total_file + 1))
 done
 
 echo "Total resized file = ${resized_total_file}"
 
-video_resolution="${max_width}x${max_height}"
+if [[ $resized_total_file -lt 1 ]]; then
+  echo "No image to resize, exit"
+  exit 1
+fi
+
+# # Check if the output file exists and modify the name if it does
+# output_file="output.mp4"
+# found_file=1
+# base_output_file="${output_file%.*}"
+
+# while [[ -f "$output_file" ]]; do    
+#     echo "'$output_file' is already exists, use new name '${base_output_file}-${found_file}.mp4'"
+#     output_file="${base_output_file}-${found_file}.mp4"
+#     ((found_file++))
+# done
 
 # Check if the output file exists and modify the name if it does
-output_file="output.mp4"
+video_output_filename="output.mp4"
 found_file=1
-base_output_file="${output_file%.*}"
+base_video_output_file="${video_output_filename%.*}"
 
-while [[ -f "$output_file" ]]; do    
-    echo "'$output_file' is already exists, use new name '${base_output_file}-${found_file}.mp4'"
-    output_file="${base_output_file}-${found_file}.mp4"
+while [[ -f "$video_output_filename" ]]; do    
+    echo "'$video_output_filename' is already exists, use new name '${base_video_output_file}-${found_file}.mp4'"
+    video_output_filename="${base_video_output_file}-${found_file}.mp4"
     ((found_file++))
 done
+
 
 # 1st == working good with proper aspect ratio BUT hardcoded to 3 images
 # cli="ffmpeg \
@@ -107,9 +127,9 @@ done
 #images=( $(ls resized_*.png | sort -V) ) # sort -V to sort by version number
 mapfile -t images < <(ls resized_*.png | sort -V)
 
-num_images=${#images[@]}
+#num_images=${#images[@]}
 
-total_duration=$((num_images * per_image_duration))
+total_duration=$((resized_total_file * per_image_duration))
 fps=30  # Frames per second
 
 # Build input arguments dynamically
@@ -127,8 +147,10 @@ filter=""
 #filter+="[0:v]format=rgba,scale=${max_width}:${max_height},setsar=1[base];"
 
 # Build scaling filters dynamically
-for ((i=0; i<num_images; i++)); do
-  filter+="[$i:v]format=rgba,scale=${max_width}:${max_height},setsar=1[v$i];"
+for ((i=0; i<resized_total_file; i++)); do
+  #filter+="[$i:v]format=rgba,scale=${video_width}:${video_height},setsar=1[v$i];"
+  # no need to set format=rgba, because there is no overlay (eg: text/image) on top of the image
+  filter+="[$i:v]scale=${video_width}:${video_height},setsar=1[v$i];"
 
   #input_idx=$((i + 1)) # +1 because the first input is the background image
   #filter+="[$input_idx:v]format=rgba,scale=${max_width}:${max_height},setsar=1[v$i];"
@@ -137,14 +159,14 @@ for ((i=0; i<num_images; i++)); do
 done
 
 # Create BLACK base background canvas
-filter+="color=size=${max_width}x${max_height}:duration=${total_duration}:rate=$fps:color=black[base];"
+filter+="color=size=${video_width}x${video_height}:duration=${total_duration}:rate=$fps:color=black[base];"
 
 # Build sliding overlay dynamically
 current_time=0
 last_slide="[base]"
 
 # working good for simple sliding effect
-for ((i=0; i<num_images; i++)); do
+for ((i=0; i<resized_total_file; i++)); do
   start_time=$current_time
   end_time=$((current_time + per_image_duration))
   t_in_end=$(echo "$start_time + 0.5" | bc)
@@ -173,24 +195,25 @@ fi
 # Remove only the trailing semicolon
 filter="${filter%;}"
 
-# Full FFmpeg command using an array
-cli=(ffmpeg \
-  "${input_args[@]}" \
-  -filter_complex "$filter" \
-  -map "$last_slide" \
-  -c:v libx264 \
-  -r "$fps" \
-  -s "$video_resolution" \
-  -pix_fmt yuv420p \
-  "$output_file"
+# Full FFmpeg command using an array --> safer
+cli=(ffmpeg 
+  "${input_args[@]}"
+  -filter_complex "$filter"
+  -map "$last_slide" 
+  -c:v libx264 
+  -r "$fps" 
+  -s "$video_resolution" 
+  -pix_fmt yuv420p 
+  "$video_output_filename"
 )
 
-# # display (to review during debugging) command before execute
+# display (to review during debugging) command before execute
 echo "**********CLI*********"
+# using ${cli[@]} expands each item as separate words (safe for commands)
 echo "${cli[@]}"
 echo "**********************"
 
-# # execute
-# eval "$cli"
-# without eval
 "${cli[@]}"
+if [ $? -eq 0 ]; then
+  echo "🎉 Succesful to create video: $video_output_filename"
+fi

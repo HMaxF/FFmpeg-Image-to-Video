@@ -8,20 +8,19 @@ if [ "$#" -lt 1 ]; then
     # echo "Not enough parameters."
     echo "Usage: $0 [filename wildcard]" # [per-image duration]"
     echo "example:"
-    echo "$0 \"MyPhoto*.jpg\" 3 \"Hello there !!\""
+    echo "$0 \"MyPhoto*.jpg\" \"hariyantoandfriends\""
     exit 1
 fi
 
 # Assign the arguments to variables
 image_file_wild_card=$1
 
-per_image_duration=5 # default duration
-
-# watermark_text=$3
-# watermark_text_length=${#watermark_text}
-# if [ $watermark_text_length -gt 0 ]; then
-#   echo "Watermark text: $watermark_text"
-# fi
+#per_image_duration=6 # default duration
+watermark_text=$2 # "@hariyantoandfriends"
+watermark_text_length=${#watermark_text}
+if [ $watermark_text_length -gt 0 ]; then
+  echo "Watermark text: $watermark_text"
+fi
 
 # Settings
 start_zoom=1.2       # initial zoom (20% zoomed in)
@@ -33,7 +32,6 @@ DUR=5              # duration per image in seconds
 total_frames=$((DUR * fps)) # instead of constant speed ($zoomout_speed), use $fps and $DUR to calculate dynamic speed (but maybe value is too small ==> jittery)
 fade_duration=1    # duration of fade-in and fade-out transition for each video (in seconds)
 # $fade_duration will be inside $DUR !
-
 
 # for Instagram post, ratio of 5:4 (portrait) or 1:1.25 is good !!!
 video_width=1080
@@ -107,6 +105,8 @@ filter_complex=""
 counter=0
 offset=0
 
+vignette=PI/4 # default value == PI/5
+
 for resized_image_filename in "${resized_filenames[@]}"; do
     inputs+="-loop 1 -t $DUR -i $resized_image_filename "
 
@@ -127,7 +127,7 @@ for resized_image_filename in "${resized_filenames[@]}"; do
         # eq(on,1) ==> if frame count equal 1 (first frame)
         #filter_complex+="[$counter:v]zoompan=z='if(eq(on,1),$start_zoom,$start_zoom+(($end_zoom-$start_zoom)*(on/$total_frames)))'\
 
-        
+        # have to define ':s=$video_resolution' otherwise 'zoompan' video resolution default is 1280x720
 
         filter_complex+="[$counter:v]zoompan=z='max($end_zoom,$start_zoom-on*$zoomout_speed)'\
             :x=iw/2-(iw/zoom/2)\
@@ -135,7 +135,7 @@ for resized_image_filename in "${resized_filenames[@]}"; do
             :d=1\
             :s=$video_resolution\
             ,fps=$fps\
-            ,vignette=PI/4\
+            ,vignette=$vignette\
             ,fade=t=out:st=$(echo "$DUR-$fade_duration" | bc)\
             :d=$fade_duration\
             ,trim=duration=$DUR\
@@ -149,7 +149,7 @@ for resized_image_filename in "${resized_filenames[@]}"; do
             :d=1\
             :s=$video_resolution\
             ,fps=$fps\
-            ,vignette=PI/4\
+            ,vignette=$vignette\
             ,fade=t=in:st=0:d=$fade_duration\
             :d=$fade_duration\
             ,trim=duration=$DUR\
@@ -165,7 +165,7 @@ for resized_image_filename in "${resized_filenames[@]}"; do
             :d=1\
             :s=$video_resolution\
             ,fps=$fps\
-            ,vignette=PI/4\
+            ,vignette=$vignette\
             ,fade=t=in:st=0:d=$fade_duration\
             ,fade=t=out:st=$(echo "$DUR-$fade_duration" | bc)\
             :d=$fade_duration\
@@ -182,10 +182,7 @@ done
 # define watermark_image
 #watermark_image="hariyantoandfriends-300x45.png" # watermark image
 if [[ -n "$watermark_image" && ${#watermark_image} -gt 1 ]]; then    
-    #filter_complex+="[$counter:v]fps=$fps,format=rgba,setpts=PTS-STARTPTS[wm];" # to make adding watermark without jittery
-    filter_complex+="[$counter:v]fps=$fps,format=rgba,loop=1,trim=duration=$((DUR*resized_total_file)),tpad=stop_mode=clone,setpts=PTS-STARTPTS[wm];" # to make adding watermark without jittery
-
-    #2025-04-07: no solution to remove jittery
+    filter_complex+="[$counter:v]fps=$fps,format=rgba,loop=1,trim=duration=$((DUR*resized_total_file)),tpad=stop_mode=clone,setpts=PTS-STARTPTS[wm];"
 fi
 
 # Concatenate using overlay for crossfade
@@ -196,6 +193,7 @@ done
 final_tag="full_video"
 filter_complex+="concat=n=${counter}:v=1:a=0[$final_tag];"
 
+# add watermark image to the video
 if [[ -n "$watermark_image" && ${#watermark_image} -gt 1 ]]; then
   echo "Watermark image value exists."
 
@@ -209,19 +207,28 @@ if [[ -n "$watermark_image" && ${#watermark_image} -gt 1 ]]; then
   final_tag="output_video"
 fi
 
-# add text watermark to the video
-watermark_text="@hariyantoandfriends"
+# add watermark text to the video
 if [[ -n "$watermark_text" && ${#watermark_text} -gt 1 ]]; then
 
-  font_file="Signatura\ Monoline.ttf" # use ttf file
+  #font_file="Signatura\ Monoline.ttf" # use ttf file
   font_file="MonsieurLaDoulaise-Regular.ttf"
   font="Times New Roman" #Segoe Script" 
 
-  filter_complex+="[$final_tag]drawtext=text='$watermark_text'\
-  :fontfile='$font_file'\
-  :fontcolor=white\
-  :fontsize=48\
-  :x=20:y=h-text_h-20[text_watermarked];"
+  if [[ "$watermark_text" == "hariyantoandfriends" ]]; then
+    # use font_file as signature on the bottom LEFT side
+    filter_complex+="[$final_tag]drawtext=text='$watermark_text'\
+        :fontfile='$font_file'\
+        :fontcolor=white\
+        :fontsize=48\
+        :x=20:y=h-text_h-20[text_watermarked];"
+  else 
+    # use normal font on the bottom RIGHT side
+    filter_complex+="[$final_tag]drawtext=text='$watermark_text'\
+        :font='$font'\
+        :fontcolor=pink\
+        :fontsize=48\
+        :x=(w-text_w)-20:y=h-text_h-20[text_watermarked];"
+  fi
 
   # bottom center  
   #:x=(w-text_w)/2:y=h-text_h-20[text_watermarked];"
@@ -232,27 +239,29 @@ fi
 # Remove only the trailing semicolon
 filter_complex="${filter_complex%;}"
 
-# Full FFmpeg command using an array
-cli="ffmpeg -hide_banner \
-  "$inputs" \
-  -filter_complex \"$filter_complex\" \
-  -map \"[$final_tag]\" \
-  -c:v libx264 \
-  -pix_fmt yuv420p \
-  -preset ultrafast \
-  -r $fps \
-  -s \"$video_resolution\" \
-  
-  \"$video_output_filename\"
-  "
+# remove ALL SPACES (inside value) and save cleaned version back into the variable
+filter_complex="${filter_complex// /}"
 
-echo "*** cli: ******************"
-echo $cli
-echo "***************************"
+# Full FFmpeg command using an array --> safer
+cli=(ffmpeg -hide_banner 
+  $inputs
+  -filter_complex "$filter_complex"
+  -map "[$final_tag]"
+  -c:v libx264 
+  -r "$fps"
+  -s "$video_resolution"
+  -pix_fmt yuv420p 
+  -preset ultrafast   
+  "$video_output_filename"
+)
 
-eval $cli
-ret=$?
-if [ $ret -eq 0 ]; then
-    echo "************************"
-    echo "🎉 Succesful to create video: $video_output_filename"
+# display (to review during debugging) command before execute
+echo "**********CLI*********"
+# using ${cli[@]} expands each item as separate words (safe for commands)
+echo "${cli[@]}"
+echo "**********************"
+
+"${cli[@]}"
+if [ $? -eq 0 ]; then
+  echo "🎉 Succesful to create video: $video_output_filename"
 fi
