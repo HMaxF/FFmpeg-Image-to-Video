@@ -31,7 +31,7 @@ for filename in $(ls -v $image_file_wild_card); do
     images_file_data+=("$filename,$image_width,$image_height")
 
     total_image_files=$((total_image_files + 1))
-    echo "$total_image_files. $filename: ${image_width}x${image_height}"
+    echo "$total_image_files. $filename: ${image_width} x ${image_height}"
 
 done
 
@@ -80,7 +80,8 @@ done
 DUR=4
 FPS=30 
 total_frames=$(echo "$DUR * $FPS" | bc)
-fade_duration=0.5    # duration of fade-in and fade-out transition for each video (in seconds)
+# fade_in_duration=0.5    # duration of fade-in and fade-out transition for each video (in seconds)
+# fade_out_duration=0.5    # duration of fade-in and fade-out transition for each video (in seconds)
 # $fade_duration will be inside $DUR !
 
 vignette=PI/5 # PI/4 (darker) # default value == PI/5 (dark)
@@ -91,6 +92,8 @@ fc="" # filter_complex
 counter=0
 last_map=""
 concat_inputs=""
+
+
 for file_data in "${images_file_data[@]}"; do
 
     # # stop if $counter == 5
@@ -99,13 +102,13 @@ for file_data in "${images_file_data[@]}"; do
     #     break
     # fi
 
+    # extract the file data to variables
+    IFS=',' read filename original_image_width original_image_height <<< "$file_data"
+
     if [[ $counter -eq $((total_image_files - 1)) ]]; then
       # last image, add extra duration
       DUR=$((DUR + 2)) # add 2 more seconds to display with SLOW fade-out 2 seconds
     fi
-
-    # extract the file data to variables
-    IFS=',' read filename original_image_width original_image_height <<< "$file_data"
           
     inputs+="-loop 1 -t $DUR -i $filename " # note the space at the end of this line
 
@@ -115,15 +118,11 @@ for file_data in "${images_file_data[@]}"; do
 
     # calculate the zoom level for each frame
     # this 'zoom' value will determine the viewport size (original image size / zoom)
-    zoom_expr="min($zoom_end, $zoom_start + (on*$zoom_speed))"
-
+    zoom_expr="min($zoom_end, $zoom_start + (on*$zoom_speed))" # default is zooming in (except the last image)
 
     # zoom in to specified center point (target_cx, target_cy)
-    #zoompan=z='min(zoom_end, 1+on*zoom_speed)':x='target_cx - iw/zoom/2':y='target_cy - ih/zoom/2'
-
-    # center x,y to zoom into ==> NOTE: adjust here if we want to zoom in to a specific point of the original image resolution
-    # target_cx=$(echo "$video_width / 2" | bc)
-    # target_cy=$(echo "$video_height / 2" | bc)
+  
+    # center x,y to zoom into ==> NOTE: adjust here if we want to zoom in to a specific point of the original image resolution (not video resolution)
     target_cx=$(echo "$original_image_width / 2" | bc)
     target_cy=$(echo "$original_image_height / 2" | bc)
 
@@ -132,25 +131,51 @@ for file_data in "${images_file_data[@]}"; do
     y_expr="$target_cy - ((ih/zoom)/2)"
 
     # NOTE: found that using 'scale' and 'pad' cause jittery zoom effect, so we use 'setsar' (to avoid error) and 'zoompan' only
-    
+
     fc+="[$counter:v]"
     #fc+="scale=w=$video_width:h=$video_height:force_original_aspect_ratio=decrease" #scale down IF too large    
     #fc+="scale=8000:-1"
     #fc+=",pad=$video_width:$video_height:(ow-iw)/2:(oh-ih)/2:color=black" # fill remaining space with black background
     fc+="setsar=1" # important to make sure the pixel ratio is --> to avoid error
     #fc+="zoompan=z='$zoom_expr':x='$x_expr':y='$y_expr':d=1:s=$video_resolution"
+    
+    
+    #NOTE: first image does not need fade-in, last image needs longer fade-out
+    if [[ $counter -eq 0 ]]; then
+        # first image, no fade-in
+        fade_in_duration=0 # no fade-in for the first image
+        fade_out_duration=0.5
+    elif [[ $counter -eq $((total_image_files - 1)) ]]; then
+        # last image
+        fade_in_duration=0.5
+
+        # set longer fade-out duration
+        fade_out_duration=2 # 2 seconds fade-out duration
+        
+        # zooming-in (enlarge) instead of zooming-out
+        # redefine the zoom_expr to zoom in to the last image        
+        #zoom_expr="max($zoom_end, $zoom_start - (on*$zoom_speed))"
+        zoom_expr="max($zoom_start, $zoom_end - (on*$zoom_speed))"
+        # x_expr="iw/2-(iw/zoom/2)"
+        # y_expr="ih/2-(ih/zoom/2)"
+    else 
+        # middle images, fade-in and fade-out
+        fade_in_duration=0.5
+        fade_out_duration=0.5
+    fi
+
     fc+=",zoompan=z='$zoom_expr':x='$x_expr':y='$y_expr':s=$video_resolution"
     fc+=",fps=$FPS"
     fc+=",vignette=$vignette"
-    fc+=",fade=t=in:st=0:d=$fade_duration"
-
-    if [[ $counter -eq $((total_image_files - 1)) ]]; then
-      # last image, set longer fade-out duration
-      fade_duration=2 # 2 seconds fade-out duration
+    
+    # check to see if fade_in_duration > 0
+    #if [[ $fade_in_duration -gt 0 ]]; then # compare integer
+    if (( $(echo "$fade_in_duration > 0" | bc -l) )); then # compare floating-point number
+        fc+=",fade=t=in:st=0:d=$fade_in_duration"
     fi
+    fc+=",fade=t=out:st=$(echo "$DUR-$fade_out_duration" | bc):d=$fade_out_duration"
 
-    fc+=",fade=t=out:st=$(echo "$DUR-$fade_duration" | bc):d=$fade_duration"
-
+    # add trim filter to limit the duration of each video segment
     fc+=",trim=duration=$DUR[v$counter];" # use trim=duration to set exact limit time
     # note the ';' at the end of each filter
 
@@ -188,7 +213,6 @@ if [[ -n "$watermark_text" && ${#watermark_text} -gt 1 ]]; then
   last_map="[text_watermarked]" # update last_map to the watermarked video
 fi
 
-
 # Remove only the trailing semicolon (if any, no error if not present)
 fc="${fc%;}"
 
@@ -223,4 +247,3 @@ fi
 
 
 echo "Output video saved as $video_output_filename"
-
