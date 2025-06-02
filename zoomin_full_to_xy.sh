@@ -78,7 +78,7 @@ done
 
 # --- Duration and FPS ---
 DUR=4
-FPS=30 
+FPS=30 # 60 is less jittery than 30, but 30 is also okay 
 total_frames=$(echo "$DUR * $FPS" | bc)
 # fade_in_duration=0.5    # duration of fade-in and fade-out transition for each video (in seconds)
 # fade_out_duration=0.5    # duration of fade-in and fade-out transition for each video (in seconds)
@@ -92,6 +92,8 @@ fc="" # filter_complex
 counter=0
 last_map=""
 concat_inputs=""
+
+use_various_image_ratios=1 # 1 ==> use 'scale' and 'pad' to fit the video resolution, 0 (all image are same ratio) ==> use 'setsar' only
 
 
 for file_data in "${images_file_data[@]}"; do
@@ -114,31 +116,62 @@ for file_data in "${images_file_data[@]}"; do
 
     zoom_start=1.0 # initial zoom (original size)
     zoom_end=1.2 # 20% zoomed in ==> NOTE: adjust this value to zoom in more or less
-    zoom_speed=$(printf "%.4f" $(echo "($zoom_end - $zoom_start)/$total_frames" | bc -l)) # variable zoom speed
+    zoom_speed=$(printf "%.3f" $(echo "($zoom_end - $zoom_start)/$total_frames" | bc -l)) # variable zoom speed
+    zoom_speed=0.003
+
+    # IMPORTANT NOTE: larger value of 'zoom_speed' will avoid jittery zoom effect, but too large will cause zooming too fast
 
     # calculate the zoom level for each frame
     # this 'zoom' value will determine the viewport size (original image size / zoom)
-    zoom_expr="min($zoom_end, $zoom_start + (on*$zoom_speed))" # default is zooming in (except the last image)
+    #zoom_expr="min($zoom_end, $zoom_start + (on*$zoom_speed))" # default is zooming in (except the last image)    
+    zoom_expr="$zoom_start + (on*$zoom_speed)" # do not use "min()"
+    
+
+    #zoom_expr="min(1.2, 1.0 + 0.2*(on/120))"
 
     # zoom in to specified center point (target_cx, target_cy)
   
-    # center x,y to zoom into ==> NOTE: adjust here if we want to zoom in to a specific point of the original image resolution (not video resolution)
-    target_cx=$(echo "$original_image_width / 2" | bc)
-    target_cy=$(echo "$original_image_height / 2" | bc)
+    # center x,y to zoom into of the image real resolution
+    # NOTE: 
+    # IF using 'scale' then x,y is the specific point of the scaled width,height (not original image size)
+    # target_cx=$(echo "$original_image_width / 2" | bc)
+    # target_cy=$(echo "$original_image_height / 2" | bc)
 
-    # calculate the x and y position for each frame (zoom_expr is related to frame number)
-    x_expr="$target_cx - ((iw/zoom)/2)"
-    y_expr="$target_cy - ((ih/zoom)/2)"
 
     # NOTE: found that using 'scale' and 'pad' cause jittery zoom effect, so we use 'setsar' (to avoid error) and 'zoompan' only
 
     fc+="[$counter:v]"
-    #fc+="scale=w=$video_width:h=$video_height:force_original_aspect_ratio=decrease" #scale down IF too large    
-    #fc+="scale=8000:-1"
-    #fc+=",pad=$video_width:$video_height:(ow-iw)/2:(oh-ih)/2:color=black" # fill remaining space with black background
-    fc+="setsar=1" # important to make sure the pixel ratio is --> to avoid error
-    #fc+="zoompan=z='$zoom_expr':x='$x_expr':y='$y_expr':d=1:s=$video_resolution"
     
+
+    if [[ $use_various_image_ratios -eq 0 ]]; then
+        # all images are same ratio, use setsar only
+        fc+="setsar=1" # set sample aspect ratio to 1:1 (square pixels)
+    else
+        # use 'scale' and 'pad' to fit various image ratios & resolutions to the video ratio and resolution        
+
+        #fc+="scale=w=$scaled_width:h=$scaled_height:force_original_aspect_ratio=decrease" # scale down IF too large
+        #fc+="scale=-1:2160:force_original_aspect_ratio=decrease" # scale down IF too large
+        fc+="scale=$video_width:$video_height:force_original_aspect_ratio=decrease" # scale down IF too large .. also make operation FASTER
+        #fc+="scale=8000:-1:force_original_aspect_ratio=increase" # scale UP IF too small .. make operation SLOWER
+        #fc+="scale=4000:-1" # do not use force_original_aspect_ratio' because redundant after using '-1' to scale UP IF too small .. make operation SLOWER
+
+        # 'pad' is to fill the remaining space with black background
+        # NOTE: if image is bigger than 'pad' size then it will be error !
+        fc+=",pad=$video_width:$video_height:(ow-iw)/2:(oh-ih)/2:color=black" # fill remaining space with black background
+
+        fc+=",setsar=1" # set sample aspect ratio to 1:1 (square pixels)
+    fi
+
+    target_cx=$(echo "$video_width / 2" | bc)
+    target_cy=$(echo "$video_height / 2" | bc)
+
+    # calculate the x and y position for each frame (zoom_expr is related to frame number)
+    # x_expr="$target_cx - ((iw/zoom)/2)"
+    # y_expr="$target_cy - ((ih/zoom)/2)"
+    # x_expr="floor($target_cx - ((iw/zoom)/2))"
+    # y_expr="floor($target_cy - ((ih/zoom)/2))"
+    x_expr="$target_cx - ceil($target_cx/zoom)"
+    y_expr="$target_cy - ceil($target_cy/zoom)"
     
     #NOTE: first image does not need fade-in, last image needs longer fade-out
     if [[ $counter -eq 0 ]]; then
@@ -153,11 +186,9 @@ for file_data in "${images_file_data[@]}"; do
         fade_out_duration=2 # 2 seconds fade-out duration
         
         # zooming-in (enlarge) instead of zooming-out
-        # redefine the zoom_expr to zoom in to the last image        
-        #zoom_expr="max($zoom_end, $zoom_start - (on*$zoom_speed))"
-        zoom_expr="max($zoom_start, $zoom_end - (on*$zoom_speed))"
-        # x_expr="iw/2-(iw/zoom/2)"
-        # y_expr="ih/2-(ih/zoom/2)"
+        # redefine the zoom_expr to zoom in to the last image
+        #zoom_expr="max($zoom_start, $zoom_end - (on*$zoom_speed))"
+        zoom_expr="$zoom_end - (on*$zoom_speed)" # do not use "max()"
     else 
         # middle images, fade-in and fade-out
         fade_in_duration=0.5
@@ -166,7 +197,10 @@ for file_data in "${images_file_data[@]}"; do
 
     fc+=",zoompan=z='$zoom_expr':x='$x_expr':y='$y_expr':s=$video_resolution"
     fc+=",fps=$FPS"
-    fc+=",vignette=$vignette"
+
+    if [[ $use_various_image_ratios -eq 0 ]]; then
+        fc+=",vignette=$vignette" # put vignette looks good IF all images are same ratio
+    fi
     
     # check to see if fade_in_duration > 0
     #if [[ $fade_in_duration -gt 0 ]]; then # compare integer
@@ -195,7 +229,7 @@ last_map="[outv]" # last map for the next iteration
 fc+="$concat_inputs"
 
 # add watermark text to the video
-watermark_text="hariyantoandfriends"
+watermark_text="" #hariyantoandfriends"
 if [[ -n "$watermark_text" && ${#watermark_text} -gt 1 ]]; then
 
   font_file="MonsieurLaDoulaise-Regular.ttf"
