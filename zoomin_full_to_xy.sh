@@ -21,6 +21,17 @@ echo "Image file wildcard: $image_file_wild_card"
 images_file_data=()
 total_image_files=0
 
+gcd() {
+    local a=$1 b=$2
+    while [ "$b" -ne 0 ]; do
+        local temp=$b
+        b=$((a % b))
+        a=$temp
+    done
+    echo "$a"
+}
+
+
 # iterate all files matching the wildcard
 for filename in $(ls -v $image_file_wild_card); do
 
@@ -30,8 +41,28 @@ for filename in $(ls -v $image_file_wild_card); do
     # add filename, width, and height to the array
     images_file_data+=("$filename,$image_width,$image_height")
 
+    gcd_val=$(gcd "$image_width" "$image_height")
+    if [ "$gcd_val" -le 2 ]; then # less than or equal to 2
+        # no common divisor
+        if (( image_width > image_height )); then
+            ratio=$(awk "BEGIN { printf \"%.1f\", $image_height / $image_width }")
+            aspect_w=1
+            aspect_h=$ratio
+        elif (( image_height > image_width )); then
+            ratio=$(awk "BEGIN { printf \"%.1f\", $image_width / $image_height }")
+            aspect_w=$ratio
+            aspect_h=1            
+        else
+            aspect_w=1
+            aspect_h=1
+        fi
+    else
+        aspect_w=$((image_width / gcd_val))
+        aspect_h=$((image_height / gcd_val))
+    fi
+    
     total_image_files=$((total_image_files + 1))
-    echo "$total_image_files. $filename: ${image_width} x ${image_height}"
+    echo "$total_image_files. $filename: ${image_width} x ${image_height} (Aspect ratio $aspect_w:$aspect_h)"
 
 done
 
@@ -44,12 +75,15 @@ fi
 
 # use large resolution video output for all Social Media
 # eg: Instagram ==> 2:3 (portrait)
-video_width=1440
-video_height=2160 
+# video_width=1440
+# video_height=2160 
 
-# 4K - 16:9 (landscape)
-#video_width=3840 # 3840 for 4K video
-#video_height=2160 # 2160 for 4K video
+# 4K - 16:9 (landscape) -- if images are 3:2 (landscape) then it will show black bars on the sides.
+video_width=3840 # 3840 for 4K video
+# video_width=3240 # 3240 (less than 4K) to maintain 3:2 aspect of photos
+# video_height=2160 # 3740x2160 == 16:9 4K video, 3240x2160 == 3:2 aspect ratio (landscape)
+video_height=2560 # for 4K+ video with 3:2 aspect ratio (landscape) ==> NOTE: 3840x2560 can not be viewed by Kakaotalk and standard Android player.
+
 
 # NOTE: any image resolution is allowed, if input image is smaller than video size then it will be pixelated but okay.
 
@@ -84,7 +118,7 @@ total_frames=$(echo "$DUR * $FPS" | bc)
 # fade_out_duration=0.5    # duration of fade-in and fade-out transition for each video (in seconds)
 # $fade_duration will be inside $DUR !
 
-vignette=PI/5 # PI/4 (darker) # default value == PI/5 (dark)
+vignette=PI/4 # PI/4 (darker) # default value == PI/5 (dark)
 
 # iterate all images and prepare inputs for ffmpeg
 inputs=""
@@ -93,12 +127,29 @@ counter=0
 last_map=""
 concat_inputs=""
 
-use_various_image_ratios=1 # 1 ==> use 'scale' and 'pad' to fit the video resolution, 0 (all image are same ratio) ==> use 'setsar' only
+use_various_image_ratios=0 # 1 ==> use 'scale' and 'pad' to fit the video resolution, 0 (all image are same ratio) ==> use 'setsar' only
 
+zoom_start=1.0 # initial zoom (original size)
+zoom_end=1.2 # 20% zoomed in ==> NOTE: adjust this value to zoom in more or less
+zoom_speed=$(printf "%.3f" $(echo "($zoom_end - $zoom_start)/$total_frames" | bc -l)) # variable zoom speed ==> 0.2 / 120 frames ==> 0.0016666666666666667
+zoom_speed=0.003 # increasing to 0.003 is the solution to jittery or shaky zoom effect
+# IMPORTANT NOTE: larger value of 'zoom_speed' will avoid jittery zoom effect, but too large will cause zooming too fast
+
+# calculate the target center x,y position to zoom into
+target_cx=$(echo "$video_width / 2" | bc)
+target_cy=$(echo "$video_height / 2" | bc)
+
+# calculate the x and y position for each frame (zoom_expr is related to frame number)
+# x_expr="$target_cx - ((iw/zoom)/2)"
+# y_expr="$target_cy - ((ih/zoom)/2)"
+# x_expr="floor($target_cx - ((iw/zoom)/2))"
+# y_expr="floor($target_cy - ((ih/zoom)/2))"
+x_expr="$target_cx - ceil($target_cx/zoom)"
+y_expr="$target_cy - ceil($target_cy/zoom)"
 
 for file_data in "${images_file_data[@]}"; do
 
-    # # stop if $counter == 5
+    # DEBUGGING: stop if $counter == 5
     # if [[ $counter -ge 5 ]]; then
     #     echo "Reached maximum of 5 images, stopping."
     #     break
@@ -114,34 +165,20 @@ for file_data in "${images_file_data[@]}"; do
           
     inputs+="-loop 1 -t $DUR -i $filename " # note the space at the end of this line
 
-    zoom_start=1.0 # initial zoom (original size)
-    zoom_end=1.2 # 20% zoomed in ==> NOTE: adjust this value to zoom in more or less
-    zoom_speed=$(printf "%.3f" $(echo "($zoom_end - $zoom_start)/$total_frames" | bc -l)) # variable zoom speed
-    zoom_speed=0.003
-
-    # IMPORTANT NOTE: larger value of 'zoom_speed' will avoid jittery zoom effect, but too large will cause zooming too fast
-
     # calculate the zoom level for each frame
     # this 'zoom' value will determine the viewport size (original image size / zoom)
     #zoom_expr="min($zoom_end, $zoom_start + (on*$zoom_speed))" # default is zooming in (except the last image)    
-    zoom_expr="$zoom_start + (on*$zoom_speed)" # do not use "min()"
+    zoom_expr="$zoom_start + (on*$zoom_speed)" # do not need to use "min()"
     
-
-    #zoom_expr="min(1.2, 1.0 + 0.2*(on/120))"
-
-    # zoom in to specified center point (target_cx, target_cy)
-  
+    # zoom in to specified center point (target_cx, target_cy)  
     # center x,y to zoom into of the image real resolution
     # NOTE: 
     # IF using 'scale' then x,y is the specific point of the scaled width,height (not original image size)
     # target_cx=$(echo "$original_image_width / 2" | bc)
     # target_cy=$(echo "$original_image_height / 2" | bc)
 
-
-    # NOTE: found that using 'scale' and 'pad' cause jittery zoom effect, so we use 'setsar' (to avoid error) and 'zoompan' only
-
+    # NOTE: found that using 'scale' and 'pad' cause jittery zooming-in effect, solution is increase the zoom_speed to 0.003
     fc+="[$counter:v]"
-    
 
     if [[ $use_various_image_ratios -eq 0 ]]; then
         # all images are same ratio, use setsar only
@@ -159,20 +196,9 @@ for file_data in "${images_file_data[@]}"; do
         # NOTE: if image is bigger than 'pad' size then it will be error !
         fc+=",pad=$video_width:$video_height:(ow-iw)/2:(oh-ih)/2:color=black" # fill remaining space with black background
 
-        fc+=",setsar=1" # set sample aspect ratio to 1:1 (square pixels)
+        fc+=",setsar=1" # set sample aspect ratio to 1:1 (square pixels), needed but only after 'scale' and 'pad'
     fi
 
-    target_cx=$(echo "$video_width / 2" | bc)
-    target_cy=$(echo "$video_height / 2" | bc)
-
-    # calculate the x and y position for each frame (zoom_expr is related to frame number)
-    # x_expr="$target_cx - ((iw/zoom)/2)"
-    # y_expr="$target_cy - ((ih/zoom)/2)"
-    # x_expr="floor($target_cx - ((iw/zoom)/2))"
-    # y_expr="floor($target_cy - ((ih/zoom)/2))"
-    x_expr="$target_cx - ceil($target_cx/zoom)"
-    y_expr="$target_cy - ceil($target_cy/zoom)"
-    
     #NOTE: first image does not need fade-in, last image needs longer fade-out
     if [[ $counter -eq 0 ]]; then
         # first image, no fade-in
@@ -229,7 +255,7 @@ last_map="[outv]" # last map for the next iteration
 fc+="$concat_inputs"
 
 # add watermark text to the video
-watermark_text="" #hariyantoandfriends"
+watermark_text="hariyantoandfriends"
 if [[ -n "$watermark_text" && ${#watermark_text} -gt 1 ]]; then
 
   font_file="MonsieurLaDoulaise-Regular.ttf"
@@ -241,7 +267,9 @@ if [[ -n "$watermark_text" && ${#watermark_text} -gt 1 ]]; then
   fc+="$last_map drawtext=text='$watermark_text'"
   fc+=":fontfile='$font_file'"
   fc+=":fontcolor=white"
-  fc+=":fontsize=64"
+
+  font_size=$((video_height / 30)) # 30 is the divisor to get a good font size
+  fc+=":fontsize=$font_size"
   fc+=":x=(w-text_w)/2:y=h-text_h-20[text_watermarked];"
   
   last_map="[text_watermarked]" # update last_map to the watermarked video
