@@ -35,6 +35,12 @@ gcd() {
 # iterate all files matching the wildcard
 for filename in $(ls -v $image_file_wild_card); do
 
+    # DEBUGGING: stop if $counter == 5
+    # if [[ $total_image_files -ge 4 ]]; then
+    #     echo "Reached maximum of 4 images, stopping."
+    #     break
+    # fi
+
     # find image width and height (WARNING: pay attention to image rotation, it looks vertical but actually horizontal)
     IFS=',' read image_width image_height < <(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "$filename")
 
@@ -79,10 +85,10 @@ fi
 # video_height=2160 
 
 # 4K - 16:9 (landscape) -- if images are 3:2 (landscape) then it will show black bars on the sides.
-video_width=3840 # 3840 for 4K video
+video_width=1440 # 3840 # 3840 for 4K video
 # video_width=3240 # 3240 (less than 4K) to maintain 3:2 aspect of photos
-# video_height=2160 # 3740x2160 == 16:9 4K video, 3240x2160 == 3:2 aspect ratio (landscape)
-video_height=2560 # for 4K+ video with 3:2 aspect ratio (landscape) ==> NOTE: 3840x2560 can not be viewed by Kakaotalk and standard Android player.
+video_height=2160 # 3740x2160 == 16:9 4K video, 3240x2160 == 3:2 aspect ratio (landscape)
+#video_height=2560 # for 4K+ video with 3:2 aspect ratio (landscape) ==> NOTE: 3840x2560 can not be viewed by Kakaotalk and standard Android player.
 
 
 # NOTE: any image resolution is allowed, if input image is smaller than video size then it will be pixelated but okay.
@@ -149,12 +155,6 @@ y_expr="$target_cy - ceil($target_cy/zoom)"
 
 for file_data in "${images_file_data[@]}"; do
 
-    # DEBUGGING: stop if $counter == 5
-    # if [[ $counter -ge 5 ]]; then
-    #     echo "Reached maximum of 5 images, stopping."
-    #     break
-    # fi
-
     # extract the file data to variables
     IFS=',' read filename original_image_width original_image_height <<< "$file_data"
 
@@ -181,8 +181,12 @@ for file_data in "${images_file_data[@]}"; do
     fc+="[$counter:v]"
 
     if [[ $use_various_image_ratios -eq 0 ]]; then
-        # all images are same ratio, use setsar only
+        # all images are same ratio (BUT may not have same resolution), use setsar only
         fc+="setsar=1" # set sample aspect ratio to 1:1 (square pixels)
+
+        # change the x_expr and y_expr according to the image original resolution
+        target_cx=$(echo "$original_image_width / 2" | bc)
+        target_cy=$(echo "$original_image_height / 2" | bc)
     else
         # use 'scale' and 'pad' to fit various image ratios & resolutions to the video ratio and resolution        
 
@@ -197,7 +201,14 @@ for file_data in "${images_file_data[@]}"; do
         fc+=",pad=$video_width:$video_height:(ow-iw)/2:(oh-ih)/2:color=black" # fill remaining space with black background
 
         fc+=",setsar=1" # set sample aspect ratio to 1:1 (square pixels), needed but only after 'scale' and 'pad'
+
+        # calculate the target center x,y position to zoom into
+        target_cx=$(echo "$video_width / 2" | bc)
+        target_cy=$(echo "$video_height / 2" | bc)
     fi
+
+    x_expr="$target_cx - ceil($target_cx/zoom)"
+    y_expr="$target_cy - ceil($target_cy/zoom)"
 
     #NOTE: first image does not need fade-in, last image needs longer fade-out
     if [[ $counter -eq 0 ]]; then
