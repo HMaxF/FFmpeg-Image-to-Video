@@ -20,3 +20,10 @@ s ==> target video resolution, default: 'hd720'
 d ==> Set the duration expression in number of frames. This sets for how many number of frames effect will last for single input image. Default is 90.
 
 
+
+# BONUS TIP
+
+## To combine a video and an audio using fade-in in the beginning and fade out at the end
+```
+ffmpeg -i "video.mp4" -ss 4:00 -i "audio.m4a" -filter_complex [1:a]afade=t=in:st=0:d=3,afade=t=out:st=58:d=4[aud] -map 0:v -map "[aud]" -c:v copy -c:a aac -shortest "video-with-audio.mp4"
+```
