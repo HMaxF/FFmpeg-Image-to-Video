@@ -134,7 +134,7 @@ y='(ih-(ih/zoom))/2':\
 d=$total_frames:\
 s=${video_width}x${video_height}:\
 fps=${fps}
-" -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart "$output"
+" -c:v libx264 -color_range 2 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart "$output"
 
 echo "✅ Output video saved to: $output"
 
