@@ -127,14 +127,14 @@ echo "--------------------"
 # 2nd pass: create video with zoom-in and zoom-out effect (without scaling and cropping every frame)
 # NOTE: separate each field by ':' (not by ','), previously encountered problem when mixing 's=..,fps=..' in the same filter chain, the 'fps=..' is IGNORED silently by ffmpeg !!
 # ======== FFmpeg Command ========
-ffmpeg -hide_banner -loop 1 -i "$temp_scaled_image" -filter_complex "\
+ffmpeg -hide_banner -loop 1 -t $DUR -i "$temp_scaled_image" -filter_complex "\
 zoompan=z='${zoom_expr}':\
 x='(iw-(iw/zoom))/2':\
 y='(ih-(ih/zoom))/2':\
 d=$total_frames:\
 s=${video_width}x${video_height}:\
 fps=${fps}
-" -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart -t $DUR "$output"
+" -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart "$output"
 
 echo "✅ Output video saved to: $output"
 
