@@ -114,4 +114,14 @@ ffmpeg -i "video.mp4" -ss 4:00 -i "audio.m4a" -filter_complex [1:a]afade=t=in:st
        $ ffmpeg -hide_banner -y -i "$input_image" -vf "scale=iw:-1,pad=iw:(iw*${video_height}/${video_width}):0:(ow-ih)/2:black" -q:v 95 "$temp_scaled_image"
        ```
 
-
+## 3. To get partial/shorter video from long video
+```
+ffmpeg -ss 1:20 -t 5 -i input_long_video.mp4 -vf "transpose=$TRANSPOSE" -r 30 -crf 18 -preset ultrafast -c:a copy output_short_video.mp4
+```
+NOTES:
+1. '-ss' and '-t' parameters SHOULD BE DEFINED BEFORE '-i' parameter to skip forward faster!
+2. 'transpose' parameter is optional, it is to rotate, values are:
+   - transpose=0: Rotate by 90 degrees counter-clockwise and flip vertically. This is the default.
+   - transpose=1: Rotate by 90 degrees clockwise.
+   - transpose=2: Rotate by 90 degrees counter-clockwise.
+   - transpose=3: Rotate by 90 degrees clockwise and flip vertically.
